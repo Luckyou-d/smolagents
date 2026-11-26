@@ -1066,3 +1066,35 @@ def test_validate_tool_arguments_nullable(scenario, type_hint, default, input_va
     else:
         # Should not raise any exception
         validate_tool_arguments(test_tool, input_dict)
+
+
+class TestToolFileNameMustBePortable:
+    """A saved tool has to be writable on every platform, not only this one."""
+
+    def build(self):
+        class PortableTool(Tool):
+            name = "portable_tool"
+            description = "A tool for the file-name check"
+            inputs = {"x": {"type": "integer", "description": "a number"}}
+            output_type = "integer"
+
+            def forward(self, x: int) -> int:
+                return x
+
+        return PortableTool()
+
+    def test_a_reserved_character_is_rejected_with_a_reason(self, tmp_path):
+        backslash = chr(92)  # a literal one, not an escape in this source
+        for name in ("a:b", "a<b", "a>b", "a|b", "a/b", f"a{backslash}b", "a?b", "a*b"):
+            built = self.build()
+            built.name = name
+
+            with pytest.raises(ValueError, match="cannot be written on every platform"):
+                built.save(tmp_path, tool_file_name=built.name)
+
+    def test_an_ordinary_name_still_saves(self, tmp_path):
+        built = self.build()
+
+        built.save(tmp_path)
+
+        assert (tmp_path / "tool.py").exists()

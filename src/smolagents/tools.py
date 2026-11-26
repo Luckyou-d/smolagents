@@ -103,6 +103,12 @@ class BaseTool(ABC):
         pass
 
 
+# Characters a saved tool's file name may not carry. A tool is saved here and reloaded
+# from the same folder by any platform - `push_to_hub` puts `tool.py` on the Hub - so the
+# Windows set applies everywhere rather than only on the machine that wrote it.
+_UNPORTABLE_FILE_NAME_CHARS = frozenset(r'<>:"/\|?*')
+
+
 class Tool(BaseTool):
     """
     A base class for the functions used by the agent. Subclass this and implement the `forward` method as well as the
@@ -406,6 +412,16 @@ class Tool(BaseTool):
         # Ensure output directory exists
         output_path = Path(output_dir)
         output_path.mkdir(parents=True, exist_ok=True)
+        # A name with a separator or a Windows-reserved character did not fail as "bad
+        # tool name": it surfaced as `FileNotFoundError` for `a:b` or `OSError: [Errno 22]`
+        # for `a<b`, from the filesystem call instead of from a check that explains it.
+        offending = sorted(set(tool_file_name) & _UNPORTABLE_FILE_NAME_CHARS)
+        if offending or tool_file_name in {"", ".", ".."}:
+            reason = f"reserved characters {''.join(offending)!r}" if offending else "not a file name"
+            raise ValueError(
+                f"Tool file name {tool_file_name!r} cannot be written on every platform: {reason}. "
+                "Rename the tool or pass `tool_file_name=`."
+            )
         # Save tool file
         self._write_file(output_path / f"{tool_file_name}.py", self._get_tool_code())
         if make_gradio_app:
